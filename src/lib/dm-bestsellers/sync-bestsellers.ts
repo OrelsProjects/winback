@@ -2,7 +2,14 @@ import type { Prisma } from "@/generated-directory/client";
 import {
   BESTSELLER_PAGE_SIZE,
 } from "@/lib/dm-bestsellers/constants";
+import {
+  filterEligibleBestsellers,
+  rerankBestsellers,
+  sortBestsellersByDmStatus,
+  DEFAULT_BESTSELLER_SORT_ORDER,
+} from "@/lib/dm-bestsellers/eligible-for-display";
 import { directoryPrisma } from "@/lib/db/directory-prisma";
+import { prisma } from "@/lib/db/prisma";
 import {
   isLeaderboardCategoryKey,
   LEADERBOARD_CATEGORY,
@@ -172,6 +179,61 @@ export const getBestsellersPage = async (params: {
     bestsellers: rows.map((row, index) =>
       mapDirectoryPublication(row, skip + index + 1),
     ),
+    total,
+    page,
+    pageSize,
+    totalPages,
+    more: page + 1 < totalPages,
+  };
+};
+
+/** Page DM bestsellers by note-eligibility priority, then directory rank. */
+export const getDmBestsellersPage = async (params: {
+  categoryKey: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<BestsellerPageResult> => {
+  const pageSize = params.pageSize ?? BESTSELLER_PAGE_SIZE;
+  const page = Math.max(0, params.page ?? 0);
+  const where = await getPublicationWhere(params.categoryKey);
+  const orderBy = getPublicationOrderBy(params.categoryKey);
+
+  const rows = await directoryPrisma.publication.findMany({
+    where,
+    orderBy,
+    select: publicationSelect,
+  });
+
+  const authorIds = rows
+    .map((row) => row.substackAuthorId)
+    .filter((id): id is NonNullable<typeof id> => id != null)
+    .map((id) => Number(id));
+
+  const statuses =
+    authorIds.length === 0
+      ? []
+      : await prisma.bestsellerDM.findMany({
+          where: { authorId: { in: authorIds } },
+        });
+
+  const statusByAuthor = new Map(statuses.map((row) => [row.authorId, row]));
+  const allBestsellers = rows.map((row, index) =>
+    mapDirectoryPublication(row, index + 1),
+  );
+  const filtered = filterEligibleBestsellers(allBestsellers, statusByAuthor);
+  const sorted = sortBestsellersByDmStatus(
+    filtered,
+    statusByAuthor,
+    DEFAULT_BESTSELLER_SORT_ORDER,
+  );
+
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const skip = page * pageSize;
+  const pageSlice = sorted.slice(skip, skip + pageSize);
+
+  return {
+    bestsellers: rerankBestsellers(pageSlice, skip),
     total,
     page,
     pageSize,

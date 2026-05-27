@@ -9,14 +9,22 @@ export const wasAlreadyDmSent = (
   status: BestsellerDM | undefined,
 ): boolean => Boolean(status?.wasSent && status.sentAt);
 
-/** Hide authors who were dismissed, failed note check, or cannot receive DMs. */
+/** Hide authors who were dismissed or cannot receive DMs. */
 export const isAuthorEligibleForDisplay = (
   status: BestsellerDM | undefined,
 ): boolean => {
   if (status?.isDeleted) return false;
   if (status?.canSendDm === false) return false;
-  if (status?.isSendingNotes === false) return false;
   return true;
+};
+
+/** Lower number = higher priority when paging DM bestsellers. */
+export const getBestsellerDmFetchPriority = (
+  status: BestsellerDM | undefined,
+): number => {
+  if (status?.isSendingNotes === true && !wasAlreadyDmSent(status)) return 0;
+  if (status?.isSendingNotes === false) return 1;
+  return 2;
 };
 
 export const filterEligibleBestsellers = (
@@ -69,10 +77,16 @@ export const sortBestsellersByDmStatus = (
   order: BestsellerSortOrder,
 ): Bestseller[] =>
   [...bestsellers].sort((a, b) => {
-    const aSent =
-      a.authorId != null && wasAlreadyDmSent(statusByAuthor.get(a.authorId));
-    const bSent =
-      b.authorId != null && wasAlreadyDmSent(statusByAuthor.get(b.authorId));
+    const aStatus =
+      a.authorId != null ? statusByAuthor.get(a.authorId) : undefined;
+    const bStatus =
+      b.authorId != null ? statusByAuthor.get(b.authorId) : undefined;
+    const aPriority = getBestsellerDmFetchPriority(aStatus);
+    const bPriority = getBestsellerDmFetchPriority(bStatus);
+    if (aPriority !== bPriority) return aPriority - bPriority;
+
+    const aSent = a.authorId != null && wasAlreadyDmSent(aStatus);
+    const bSent = b.authorId != null && wasAlreadyDmSent(bStatus);
 
     if (aSent !== bSent) {
       if (order === "new") return aSent ? 1 : -1;

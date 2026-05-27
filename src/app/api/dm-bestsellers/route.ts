@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { BESTSELLER_PAGE_SIZE } from "@/lib/dm-bestsellers/constants";
-import {
-  filterEligibleBestsellers,
-  rerankBestsellers,
-} from "@/lib/dm-bestsellers/eligible-for-display";
-import { getBestsellersPage } from "@/lib/dm-bestsellers/sync-bestsellers";
-import { prisma } from "@/lib/db/prisma";
+import { getDmBestsellersPage } from "@/lib/dm-bestsellers/sync-bestsellers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -33,26 +28,8 @@ export const GET = async (req: NextRequest) => {
   );
 
   try {
-    const data = await getBestsellersPage({ categoryKey, page, pageSize });
-    const authorIds = data.bestsellers
-      .map((b) => b.authorId)
-      .filter((id): id is number => id != null);
-
-    const statuses =
-      authorIds.length === 0
-        ? []
-        : await prisma.bestsellerDM.findMany({
-            where: { authorId: { in: authorIds } },
-          });
-
-    const statusByAuthor = new Map(statuses.map((row) => [row.authorId, row]));
-    const filtered = filterEligibleBestsellers(data.bestsellers, statusByAuthor);
-    const startRank = page * pageSize;
-
-    return NextResponse.json({
-      ...data,
-      bestsellers: rerankBestsellers(filtered, startRank),
-    });
+    const data = await getDmBestsellersPage({ categoryKey, page, pageSize });
+    return NextResponse.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 502 });
