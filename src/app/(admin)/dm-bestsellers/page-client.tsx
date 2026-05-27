@@ -787,7 +787,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
             onClick={handleEligiblizeAll}
             disabled={
               isEligiblizing ||
-              pendingEligibilityCount === 0 ||
+              // pendingEligibilityCount === 0 ||
               isLoadingList
             }
             aria-label="Check note eligibility for all unchecked bestsellers on this page"
