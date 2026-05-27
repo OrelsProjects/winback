@@ -1,0 +1,190 @@
+
+// ============================================================
+// Substack Directory — Prisma Schema
+// ============================================================
+// DB: Supabase (PostgreSQL)
+// Source API: /api/v1/reader/feed/profile/{author_id}
+// ============================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated-directory"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- CATEGORIES ----------
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  substackId  String   @unique @map("substack_id") @db.VarChar(20)
+  label       String   @db.VarChar(100)
+  slug        String   @unique @db.VarChar(100)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  publications Publication[]
+
+  @@map("categories")
+}
+
+// ---------- PUBLICATIONS ----------
+
+model Publication {
+  id                      Int      @id @default(autoincrement())
+
+  // Substack identifiers
+  substackPublicationId   BigInt   @unique @map("substack_publication_id")
+  substackAuthorId        BigInt   @map("substack_author_id")
+
+  // Core info
+  name                    String   @db.VarChar(255)
+  subdomain               String   @unique @db.VarChar(255)
+  customDomain            String?  @map("custom_domain") @db.VarChar(255)
+  homepageType            String?  @map("homepage_type") @db.VarChar(50)
+
+  // Branding
+  logoUrl                 String?  @map("logo_url")
+  logoUrlWide             String?  @map("logo_url_wide")
+  coverPhotoUrl           String?  @map("cover_photo_url")
+  themeColor              String?  @map("theme_color") @db.VarChar(10)
+
+  // Description
+  heroText                String?  @map("hero_text")
+
+  // Author (primary)
+  authorName              String?  @map("author_name") @db.VarChar(255)
+  authorHandle            String?  @map("author_handle") @db.VarChar(255)
+  authorPhotoUrl          String?  @map("author_photo_url")
+  authorBio               String?  @map("author_bio")
+
+  // Classification
+  categoryId              Int?     @map("category_id")
+  category                Category? @relation(fields: [categoryId], references: [id])
+  categoryRank            Int?     @map("category_rank")
+  categoryRankingType     String?  @map("category_ranking_type") @db.VarChar(20)
+  language                String   @default("en") @db.VarChar(10)
+  country                 String?  @db.VarChar(5)
+
+  // Subscriber counts (approximate)
+  freeSubscriberCount     Int?     @map("free_subscriber_count")
+  freeSubscriberDisplay   String?  @map("free_subscriber_display") @db.VarChar(20)
+  paidSubscriberMagnitude Int?     @map("paid_subscriber_magnitude")
+  paidSubscriberDisplay   String?  @map("paid_subscriber_display") @db.VarChar(50)
+  bestsellerTier          Int?     @map("bestseller_tier")
+
+  // Monetization
+  paymentsState           String   @default("disabled") @map("payments_state") @db.VarChar(20)
+  monthlyPriceCents       Int?     @map("monthly_price_cents")
+  yearlyPriceCents        Int?     @map("yearly_price_cents")
+  foundingPriceCents      Int?     @map("founding_price_cents")
+  currency                String   @default("usd") @db.VarChar(5)
+  freeBenefits            Json     @default("[]") @map("free_benefits")
+  paidBenefits            Json     @default("[]") @map("paid_benefits")
+  foundingBenefits        Json     @default("[]") @map("founding_benefits")
+  foundingPlanName        String?  @map("founding_plan_name") @db.VarChar(100)
+
+  // Features
+  communityEnabled        Boolean  @default(false) @map("community_enabled")
+  podcastEnabled          Boolean  @default(false) @map("podcast_enabled")
+  inviteOnly              Boolean  @default(false) @map("invite_only")
+  isPersonalMode          Boolean  @default(false) @map("is_personal_mode")
+
+  // Dates
+  substackCreatedAt       DateTime? @map("substack_created_at")
+  firstPostDate           DateTime? @map("first_post_date")
+
+  // Contributors
+  contributors            Json     @default("[]")
+
+  // Crawl metadata
+  lastFetchedAt           DateTime? @map("last_fetched_at")
+  fetchStatus             String   @default("pending") @map("fetch_status") @db.VarChar(20)
+
+  // Directory metadata
+  isListed                Boolean  @default(true) @map("is_listed")
+  submittedByOwner        Boolean  @default(false) @map("submitted_by_owner")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  snapshots               SubscriberSnapshot[]
+  submissions             PublicationSubmission[]
+
+  // Indexes
+  // -- existing (kept for hydration / admin queries) --
+  @@index([freeSubscriberCount(sort: Desc)])
+  @@index([paidSubscriberMagnitude(sort: Desc)])
+  @@index([bestsellerTier(sort: Desc)])
+  @@index([categoryId])
+  @@index([language])
+  @@index([paymentsState])
+  @@index([substackAuthorId])
+  @@index([lastFetchedAt(sort: Asc)])
+
+  // -- app listing queries (all share isListed = true filter) --
+  // free_subscribers sort
+  @@index([isListed, freeSubscriberCount(sort: Desc)])
+  @@index([isListed, categoryId, freeSubscriberCount(sort: Desc)])
+  @@index([isListed, language, freeSubscriberCount(sort: Desc)])
+
+  // paid_subscribers sort (paidSubscriberMagnitude → categoryRank → freeSubscriberCount)
+  @@index([isListed, paidSubscriberMagnitude(sort: Desc), categoryRank(sort: Asc), freeSubscriberCount(sort: Desc)])
+  @@index([isListed, categoryId, paidSubscriberMagnitude(sort: Desc), categoryRank(sort: Asc)])
+  @@index([isListed, language, paidSubscriberMagnitude(sort: Desc), categoryRank(sort: Asc)])
+
+  // name (A-Z) sort
+  @@index([isListed, name(sort: Asc)])
+  @@index([isListed, categoryId, name(sort: Asc)])
+  @@index([isListed, language, name(sort: Asc)])
+
+  // getLanguages groupBy
+  @@index([isListed, language])
+  @@index([authorHandle])
+
+  @@map("publications")
+}
+
+// ---------- SUBSCRIBER SNAPSHOTS ----------
+
+model SubscriberSnapshot {
+  id                      BigInt   @id @default(autoincrement())
+  publicationId           Int      @map("publication_id")
+  publication             Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  freeSubscriberCount     Int?     @map("free_subscriber_count")
+  paidSubscriberMagnitude Int?     @map("paid_subscriber_magnitude")
+  snapshotDate            DateTime @map("snapshot_date") @db.Date
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@unique([publicationId, snapshotDate])
+  @@index([publicationId, snapshotDate(sort: Desc)])
+
+  @@map("subscriber_snapshots")
+}
+
+// ---------- HYDRATION PROGRESS TRACKING ----------
+
+model ProcessedAuthor {
+  authorId    BigInt   @id @map("author_id")
+  status      String   @db.VarChar(20)  // 'done' | 'not_found' | 'error'
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_authors")
+}
+
+// ---------- PUBLICATION SUBMISSIONS ----------
+
+model PublicationSubmission {
+  id                  Int       @id @default(autoincrement())
+  substackUrl         String    @map("substack_url") @db.VarChar(500)
+  submittedByEmail    String?   @map("submitted_by_email") @db.VarChar(255)
+  submittedByAuthorId BigInt?   @map("submitted_by_author_id")
+  status              String    @default("pending") @db.VarChar(20)
+  publicationId       Int?      @map("publication_id")
+  publication         Publication? @relation(fields: [publicationId], references: [id])
+  createdAt           DateTime  @default(now()) @map("created_at")
+  reviewedAt          DateTime? @map("reviewed_at")
+
+  @@map("publication_submissions")
+}

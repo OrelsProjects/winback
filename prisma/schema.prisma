@@ -1,0 +1,142 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+enum LeadStatus {
+  NEVER_SUBSCRIBED
+  CANCELED
+  PAST_DUE
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  BOUNCED
+  COMPLAINED
+  FAILED
+}
+
+model Lead {
+  id                     String     @id @default(uuid())
+  userIdInWriteStack     String     @unique
+  email                  String     @unique
+  firstName              String?
+  lastName               String?
+  substackHandle         String?
+  status                 LeadStatus
+  lastPlanName           String?
+  subscriptionCanceledAt DateTime?
+  signedUpAt             DateTime?
+
+  firstEmailedAt      DateTime?
+  lastEmailedAt       DateTime?
+  emailCount          Int       @default(0)
+  remindAt            DateTime?
+  reminderDismissedAt DateTime?
+
+  unsubscribedAt          DateTime?
+  /// Set from WriteStack when the user opted out of marketing/product email
+  didUnsubscribeFromEmail Boolean   @default(false)
+
+  excludedAt     DateTime?
+  excludedReason String?
+
+  notes String? @db.Text
+
+  lastSyncedAt DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  emails EmailLog[]
+
+  @@index([status, lastEmailedAt])
+  @@index([remindAt])
+}
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  subject   String
+  bodyJson  Json
+  bodyHtml  String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emails EmailLog[]
+}
+
+model EmailLog {
+  id         String         @id @default(uuid())
+  leadId     String
+  lead       Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  templateId String?
+  template   EmailTemplate? @relation(fields: [templateId], references: [id])
+
+  subject     String
+  bodyHtml    String @db.Text
+  bodyText    String @db.Text
+  fromAddress String
+  toAddress   String
+
+  resendMessageId String?     @unique
+  status          EmailStatus @default(QUEUED)
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  bouncedAt       DateTime?
+  errorMessage    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([sentAt])
+}
+
+model SyncRun {
+  id            String    @id @default(uuid())
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  addedCount    Int       @default(0)
+  updatedCount  Int       @default(0)
+  excludedCount Int       @default(0)
+  errorMessage  String?
+}
+
+/// Tracks whether we've DM'd a Substack bestseller author from the chat-stack extension.
+/// Populated lazily: only verified for entries with `sentAt = null` or older than 3 days.
+model BestsellerDM {
+  id       String  @id @default(uuid())
+  authorId Int     @unique
+  handle   String?
+  name     String?
+  threadId String?
+  clientId String?
+
+  wasSent           Boolean   @default(false)
+  sentAt            DateTime?
+  lastReplyAt       DateTime?
+  lastCheckedAt     DateTime?
+  /// True when the author averaged more than one note per day over the lookback window.
+  eligible          Boolean   @default(false)
+  eligibleCheckedAt DateTime?
+  /// Null until note-eligibility is verified; true when the author posts notes regularly.
+  isSendingNotes    Boolean?
+  /// From extension: false when the author does not accept DMs. Null until checked.
+  canSendDm         Boolean?
+  /// Manually dismissed from the DM list.
+  isDeleted         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([wasSent, sentAt])
+  @@index([eligible])
+  @@index([isSendingNotes])
+  @@index([canSendDm])
+  @@index([isDeleted])
+}
