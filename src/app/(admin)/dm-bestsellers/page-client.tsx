@@ -29,6 +29,7 @@ import {
   BESTSELLER_PAGE_SIZE,
   DM_ELIGIBILITY_BATCH_DELAY_MS,
   DM_ELIGIBILITY_BATCH_SIZE,
+  DM_ELIGIBILITY_RATE_LIMIT_RETRY_MS,
   DM_VERIFY_BATCH_DELAY_MS,
   DM_VERIFY_BATCH_SIZE,
   DEFAULT_CATEGORY_SLUG,
@@ -123,6 +124,11 @@ const needsEligibilityCheck = (
   const status = statusByAuthor.get(bestseller.authorId);
   if (status?.wasSent && status.sentAt) return false;
   return !status?.eligibleCheckedAt;
+};
+
+const isEligibilityRateLimitError = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  return /\b429\b/.test(err.message);
 };
 
 export const DmBestsellersPageClient = ({ categories }: Props) => {
@@ -640,15 +646,34 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         new Set([...prev, ...batchAuthorIds]),
       );
 
+      const runBatch = async () => checkEligibility(batchAuthorIds);
+
       try {
-        await checkEligibility(batchAuthorIds);
+        await runBatch();
         success += batchAuthorIds.length;
       } catch (err) {
-        console.error("Eligibility batch check failed", err);
-        failed += batchAuthorIds.length;
-        const message =
-          err instanceof Error ? err.message : "Eligibility check failed";
-        toast.error(`Eligibility check failed: ${message}`);
+        if (isEligibilityRateLimitError(err)) {
+          toast.info("Rate limited — waiting 15s before retry…");
+          await delay(DM_ELIGIBILITY_RATE_LIMIT_RETRY_MS);
+          try {
+            await runBatch();
+            success += batchAuthorIds.length;
+          } catch (retryErr) {
+            console.error("Eligibility batch retry failed", retryErr);
+            failed += batchAuthorIds.length;
+            const message =
+              retryErr instanceof Error
+                ? retryErr.message
+                : "Eligibility check failed";
+            toast.error(`Eligibility check failed after retry: ${message}`);
+          }
+        } else {
+          console.error("Eligibility batch check failed", err);
+          failed += batchAuthorIds.length;
+          const message =
+            err instanceof Error ? err.message : "Eligibility check failed";
+          toast.error(`Eligibility check failed: ${message}`);
+        }
       }
 
       setEligibilityCheckingAuthorIds((prev) => {

@@ -36,6 +36,7 @@ export const POST = async (req: NextRequest) => {
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Eligibility check failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const status = /\b429\b/.test(message) ? 429 : 502;
+    return NextResponse.json({ error: message }, { status });
   }
 };

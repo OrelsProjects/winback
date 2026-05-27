@@ -24,6 +24,9 @@ export const DM_ELIGIBILITY_BATCH_SIZE = 3;
 /** Pause between eligibility check batches (ms). */
 export const DM_ELIGIBILITY_BATCH_DELAY_MS = 3000;
 
+/** Wait before retrying an eligibility batch after a 429 rate limit. */
+export const DM_ELIGIBILITY_RATE_LIMIT_RETRY_MS = 15_000;
+
 /** How many calendar days of note history to inspect for eligibility. */
 export const DM_ELIGIBILITY_LOOKBACK_DAYS = 10;
 
