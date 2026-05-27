@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCheck, RefreshCw, AlertTriangle } from "lucide-react";
+import { CheckCheck, NotepadText, RefreshCw, AlertTriangle } from "lucide-react";
 import type { BestsellerDM } from "@/generated/browser";
 import type { Bestseller, DiscoverCategory } from "@/lib/substack/discover";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ import {
   isDmStatusFresh,
   DM_FRESHNESS_DAYS,
   BESTSELLER_PAGE_SIZE,
+  DM_ELIGIBILITY_BATCH_DELAY_MS,
+  DM_ELIGIBILITY_BATCH_SIZE,
   DM_VERIFY_BATCH_DELAY_MS,
   DM_VERIFY_BATCH_SIZE,
   DEFAULT_CATEGORY_SLUG,
@@ -113,6 +115,16 @@ const needsExtensionCheck = (
   return !isDmStatusFresh(status.lastCheckedAt, now);
 };
 
+const needsEligibilityCheck = (
+  bestseller: Bestseller,
+  statusByAuthor: DmStatusMap,
+): boolean => {
+  if (!bestseller.authorId) return false;
+  const status = statusByAuthor.get(bestseller.authorId);
+  if (status?.wasSent && status.sentAt) return false;
+  return !status?.eligibleCheckedAt;
+};
+
 export const DmBestsellersPageClient = ({ categories }: Props) => {
   const defaultCategoryKey =
     categories.find((c) => c.slug === DEFAULT_CATEGORY_SLUG)?.categoryKey ??
@@ -143,6 +155,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     DEFAULT_BESTSELLER_SORT_ORDER,
   );
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isEligiblizing, setIsEligiblizing] = useState(false);
 
   const {
     isAvailable: extensionReady,
@@ -601,6 +614,62 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     persistDmStatuses,
   ]);
 
+  const handleEligiblizeAll = useCallback(async () => {
+    const toCheck = visibleBestsellers.filter((b) =>
+      needsEligibilityCheck(b, statusByAuthor),
+    );
+    if (toCheck.length === 0) {
+      toast.success("All eligibility checked — nothing to do.");
+      return;
+    }
+
+    setIsEligiblizing(true);
+
+    let success = 0;
+    let failed = 0;
+
+    const batches = batch(toCheck, DM_ELIGIBILITY_BATCH_SIZE);
+
+    for (let i = 0; i < batches.length; i++) {
+      const batchItems = batches[i]!;
+      const batchAuthorIds = batchItems
+        .map((item) => item.authorId)
+        .filter((id): id is number => id != null);
+
+      setEligibilityCheckingAuthorIds((prev) =>
+        new Set([...prev, ...batchAuthorIds]),
+      );
+
+      try {
+        await checkEligibility(batchAuthorIds);
+        success += batchAuthorIds.length;
+      } catch (err) {
+        console.error("Eligibility batch check failed", err);
+        failed += batchAuthorIds.length;
+        const message =
+          err instanceof Error ? err.message : "Eligibility check failed";
+        toast.error(`Eligibility check failed: ${message}`);
+      }
+
+      setEligibilityCheckingAuthorIds((prev) => {
+        const next = new Set(prev);
+        for (const id of batchAuthorIds) next.delete(id);
+        return next;
+      });
+
+      if (i < batches.length - 1) {
+        await delay(DM_ELIGIBILITY_BATCH_DELAY_MS);
+      }
+    }
+
+    setIsEligiblizing(false);
+    if (failed > 0) {
+      toast.warning(`Checked ${success} authors, ${failed} failed`);
+    } else {
+      toast.success(`Checked eligibility for ${success} authors`);
+    }
+  }, [visibleBestsellers, statusByAuthor, checkEligibility]);
+
   const actionStateByAuthorId = useMemo(() => {
     const map = new Map<number, DmActionState>();
     for (const b of visibleBestsellers) {
@@ -648,6 +717,14 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     ).length;
   }, [visibleBestsellers, statusByAuthor]);
 
+  const pendingEligibilityCount = useMemo(
+    () =>
+      visibleBestsellers.filter((b) =>
+        needsEligibilityCheck(b, statusByAuthor),
+      ).length,
+    [visibleBestsellers, statusByAuthor],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -658,7 +735,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
             database.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             onClick={handleVerifyAll}
             disabled={
@@ -679,6 +756,27 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
               : pendingCount === 0
                 ? "All fresh"
                 : `Verify ${pendingCount} on page`}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleEligiblizeAll}
+            disabled={
+              isEligiblizing ||
+              pendingEligibilityCount === 0 ||
+              isLoadingList
+            }
+            aria-label="Check note eligibility for all unchecked bestsellers on this page"
+          >
+            {isEligiblizing ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <NotepadText className="h-4 w-4 mr-2" />
+            )}
+            {isEligiblizing
+              ? "Checking…"
+              : pendingEligibilityCount === 0
+                ? "All checked"
+                : `Eligiblize ${pendingEligibilityCount} on page`}
           </Button>
         </div>
       </div>
