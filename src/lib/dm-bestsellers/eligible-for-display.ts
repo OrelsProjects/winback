@@ -1,5 +1,6 @@
 import type { BestsellerDM } from "@/generated/client";
 import type { Bestseller } from "@/lib/substack/discover";
+import { isWriteStackSubscriber } from "@/lib/dm-bestsellers/are-subscribers";
 
 export type BestsellerSortOrder = "new" | "already-sent";
 
@@ -36,6 +37,13 @@ export const filterEligibleBestsellers = (
     return isAuthorEligibleForDisplay(statusByAuthor.get(b.authorId));
   });
 
+/** Hide authors who are or were WriteStack subscribers (have a note on file). */
+export const filterNonSubscriberBestsellers = (
+  bestsellers: Bestseller[],
+  statusByAuthor: ReadonlyMap<number, BestsellerDM>,
+): Bestseller[] =>
+  bestsellers.filter((b) => !isWriteStackSubscriber(b, statusByAuthor));
+
 /** Build a status row that hides the author immediately while dismiss saves. */
 export const applyOptimisticDismiss = (
   existing: BestsellerDM | undefined,
@@ -61,6 +69,8 @@ export const applyOptimisticDismiss = (
         isSendingNotes: null,
         canSendDm: null,
         isDeleted: true,
+        isWriteStackSubscriber: null,
+        writeStackCheckedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

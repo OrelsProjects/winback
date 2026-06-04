@@ -1,7 +1,7 @@
 "use client";
 
 import type { Bestseller } from "@/lib/substack/discover";
-import { BestsellerRow } from "./bestseller-row";
+import { BestsellerRow, type WriteStackSubscriberStatus } from "./bestseller-row";
 import type { DmActionState, VerifyActionState, VerifyEligibleActionState } from "./dm-action-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Inbox } from "lucide-react";
 type Props = {
   isLoading: boolean;
   bestsellers: Bestseller[];
+  getWriteStackStatus: (b: Bestseller) => WriteStackSubscriberStatus;
   /** authorId -> send action state. Missing entries default to "idle". */
   actionStateByAuthorId: Map<number, DmActionState>;
   /** authorId -> verify action state. Missing entries default to "disabled". */
@@ -25,6 +26,7 @@ type Props = {
 export const BestsellerList = ({
   isLoading,
   bestsellers,
+  getWriteStackStatus,
   actionStateByAuthorId,
   verifyStateByAuthorId,
   verifyEligibleStateByAuthorId,
@@ -57,6 +59,14 @@ export const BestsellerList = ({
 
   return (
     <Card className="divide-y">
+      <div className="flex items-center gap-3 px-3 py-2 text-xs font-medium text-muted-foreground border-b bg-muted/30">
+        <div className="h-8 w-8 shrink-0" aria-hidden="true" />
+        <div className="w-6 shrink-0 text-right">#</div>
+        <div className="h-10 w-10 shrink-0" aria-hidden="true" />
+        <div className="flex-1 min-w-0">Creator</div>
+        <div className="w-[4.5rem] shrink-0 text-center">WriteStack</div>
+        <div className="shrink-0 w-[7.5rem] text-right">Actions</div>
+      </div>
       {bestsellers.map((b) => {
         const state = b.authorId
           ? (actionStateByAuthorId.get(b.authorId) ?? "idle")
@@ -71,6 +81,7 @@ export const BestsellerList = ({
           <BestsellerRow
             key={`${b.publicationId}-${b.rank}`}
             bestseller={b}
+            writeStackStatus={getWriteStackStatus(b)}
             actionState={state}
             verifyState={verifyState}
             verifyEligibleState={verifyEligibleState}

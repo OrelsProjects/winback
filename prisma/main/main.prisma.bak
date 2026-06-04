@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated-main"
+}
+
+datasource db {
+  provider = "mongodb"
+}
+
+enum NoteStatus {
+  draft
+  scheduled
+  sent
+  failed
+}
+
+enum NoteFeedback {
+  positive
+  negative
+}
+
+model Note {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+
+  ghostwriterUserId String? @db.ObjectId
+
+  body      String
+  bodyJson  String?
+  summary   String
+  type      String?
+  thumbnail String?
+  topics    String[]
+
+  status          NoteStatus    @default(draft)
+  feedback        NoteFeedback?
+  feedbackComment String?
+
+  substackScheduleId Int? @unique
+
+  scheduledTo       DateTime?
+  scheduledToNumber Int?
+
+  isArchived  Boolean @default(false)
+  inspiration String?
+
+  authorId Int
+  handle   String?
+  name     String?
+
+  initialGeneratingModel String?
+  generatingModel        String?
+  notesPromptVersion     Int?    @default(2)
+
+  generatedFromOnboarding Boolean @default(false)
+  noteTemplateId          String? @db.ObjectId
+
+  sentAt            DateTime?
+  sentViaScheduleAt DateTime?
+  substackNoteId    String?
+
+  shouldLike       Boolean?
+  likedAt          DateTime?
+  likeFailedAt     DateTime?
+  likeFailedReason String?
+
+  bufferChannelIds     String[] @default([])
+  bufferChannelIdsSent String[] @default([])
+
+  sendFailedAt  DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inspiredByAuthorId      Int?
+  inspiredByAuthorImage   String?
+  inspiredByAuthorName    String?
+  inspiredByAuthorHandle  String?
+  inspiredByNoteCommentId String?
+
+  evergreenConfigId String? @db.ObjectId
+
+  autoRestackAfterHours   Int?
+  autoRestackedAt         DateTime?
+  autoRestackFailedAt     DateTime?
+  autoRestackFailedReason String?
+
+  @@index([scheduledTo])
+  @@index([scheduledToNumber])
+  @@index([updatedAt])
+  @@index([evergreenConfigId])
+  @@index([handle])
+  @@map("note")
+}

@@ -131,6 +131,10 @@ model BestsellerDM {
   canSendDm         Boolean?
   /// Manually dismissed from the DM list.
   isDeleted         Boolean   @default(false)
+  /// True when WriteStack has a note for this handle (current or former subscriber).
+  isWriteStackSubscriber Boolean?
+  /// When we last called WriteStack are-subscribers for this author.
+  writeStackCheckedAt    DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -139,4 +143,5 @@ model BestsellerDM {
   @@index([isSendingNotes])
   @@index([canSendDm])
   @@index([isDeleted])
+  @@index([isWriteStackSubscriber])
 }

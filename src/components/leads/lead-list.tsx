@@ -11,6 +11,7 @@ import { LeadPagination } from "./lead-pagination";
 import { Card } from "@/components/ui/card";
 import { Users } from "lucide-react";
 import { REMINDER_DAYS } from "@/lib/constants";
+import { isFreshOutreachTab } from "@/lib/leads/build-dashboard-tab-where";
 
 type LeadWithEmail = Lead & { emails: EmailLog[] };
 
@@ -74,7 +75,7 @@ export const LeadList = ({ leads: initialLeads, total, page, totalPages, emailsS
 
   const handleEmailSent = (leadId: string) => {
     const now = new Date();
-    if (tab === "not-emailed") {
+    if (isFreshOutreachTab(tab)) {
       setLeads((prev) => prev.filter((l) => l.id !== leadId));
       return;
     }

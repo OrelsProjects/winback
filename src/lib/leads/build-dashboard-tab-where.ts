@@ -8,6 +8,15 @@ export type DashboardListParams = {
   now: Date;
 };
 
+/** Outreach tabs that list only leads who still need their first email. */
+export const isFreshOutreachTab = (tab: string): boolean =>
+  tab !== "reminders" && tab !== "excluded";
+
+const FRESH_OUTREACH = {
+  emailCount: 0,
+  ...OUTREACH_TAB_BASE,
+} as const satisfies Prisma.LeadWhereInput;
+
 /**
  * Matches the “Leads” table filters in `src/app/(admin)/page.tsx`.
  */
@@ -29,11 +38,11 @@ export const buildDashboardTabWhere = ({
 
   switch (tab) {
     case "canceled":
-      return { ...baseWhere, status: "CANCELED" as LeadStatus, ...OUTREACH_TAB_BASE };
+      return { ...baseWhere, status: "CANCELED" as LeadStatus, ...FRESH_OUTREACH };
     case "never":
-      return { ...baseWhere, status: "NEVER_SUBSCRIBED" as LeadStatus, ...OUTREACH_TAB_BASE };
+      return { ...baseWhere, status: "NEVER_SUBSCRIBED" as LeadStatus, ...FRESH_OUTREACH };
     case "not-emailed":
-      return { ...baseWhere, emailCount: 0, ...OUTREACH_TAB_BASE };
+      return { ...baseWhere, ...FRESH_OUTREACH };
     case "reminders":
       return {
         ...baseWhere,
@@ -51,7 +60,7 @@ export const buildDashboardTabWhere = ({
         ],
       };
     default:
-      return { ...baseWhere, ...OUTREACH_TAB_BASE };
+      return { ...baseWhere, ...FRESH_OUTREACH };
   }
 };
 

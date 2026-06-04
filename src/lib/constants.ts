@@ -68,5 +68,68 @@ export const TEMPLATE_EDITOR_PREVIEW_VARS = (() => {
   return out;
 })();
 
-export const getBargeDM = (name?: string) =>
-  `Hey ${name ?? "there"} :)\n\nSorry to barge into your DMs, but I saw that you are putting out Notes daily and I built a platform that'll help you automate it.\nIt has anything from a Notes bulk scheduler to deep analytics to help you figure out which notes converted to paid subs (and free), which ones brought traffic and anything you'd need.\n\nIf you're interested, I'd love to share it with you.`;
+/** First tokens parsed from publication titles — not usable as a personal greeting. */
+const GENERIC_DM_GREETING_NAMES = new Set(
+  [
+    "a",
+    "an",
+    "the",
+    "your",
+    "my",
+    "our",
+    "their",
+    "this",
+    "that",
+    "dear",
+    "hi",
+    "hello",
+    "hey",
+    "friend",
+    "reader",
+    "subscriber",
+    "user",
+    "author",
+    "writer",
+    "creator",
+    "newsletter",
+    "publication",
+    "substack",
+    "unknown",
+    "anonymous",
+    "anon",
+    "none",
+    "null",
+    "test",
+    "admin",
+    "team",
+    "staff",
+    "editor",
+    "guest",
+    "everyone",
+    "folks",
+    "friends",
+    "position",
+    "there",
+    "disciplined",
+    "md",
+    "dr",
+    "doctor",
+    "mds",
+  ].map((word) => word.toLowerCase()),
+);
+
+export const greetingNameForDm = (name?: string): string => {
+  const trimmed = name?.trim();
+  if (!trimmed) return "there";
+
+  const first = trimmed.split(/\s+/)[0]?.replace(/[^\p{L}\p{N}'-]/gu, "") ?? "";
+  if (!first || GENERIC_DM_GREETING_NAMES.has(first.toLowerCase()))
+    return "there";
+
+  return first;
+};
+
+export const getBargeDM = (name?: string) => {
+  const greeting = greetingNameForDm(name);
+  return `Hey ${greeting} :)\n\nSorry to barge into your DMs, but I saw that you are putting out Notes daily and I built a platform that'll help you automate it.\nThere's everything from a Notes bulk scheduler to deep analytics to help you figure out which notes converted to paid subs (and free), which ones brought traffic, and anything else you'd need.\n\nIf you're interested, I'd love to share it with you.`;
+};

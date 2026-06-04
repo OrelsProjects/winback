@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCheck, NotepadText, RefreshCw, AlertTriangle } from "lucide-react";
+import {
+  CheckCheck,
+  NotepadText,
+  RefreshCw,
+  AlertTriangle,
+  Users,
+} from "lucide-react";
 import type { BestsellerDM } from "@/generated/browser";
 import type { Bestseller, DiscoverCategory } from "@/lib/substack/discover";
 import { Button } from "@/components/ui/button";
@@ -40,14 +46,21 @@ import {
   canSendDmFromExtensionResult,
   type DmStatusUpsertEntry,
 } from "@/lib/dm-bestsellers/dm-status-entry";
+import { normalizeBestsellerHandle } from "@/lib/dm-bestsellers/are-subscribers";
+import {
+  hasWriteStackSubscriberCheck,
+  isPersistedWriteStackSubscriber,
+} from "@/lib/dm-bestsellers/write-stack-subscriber-status";
 import {
   applyOptimisticDismiss,
   filterEligibleBestsellers,
+  filterNonSubscriberBestsellers,
   rerankBestsellers,
   sortBestsellersByDmStatus,
   type BestsellerSortOrder,
   DEFAULT_BESTSELLER_SORT_ORDER,
 } from "@/lib/dm-bestsellers/eligible-for-display";
+import type { WriteStackSubscriberStatus } from "@/components/dm-bestsellers/bestseller-row";
 
 type Props = {
   categories: DiscoverCategory[];
@@ -162,6 +175,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
   );
   const [isVerifying, setIsVerifying] = useState(false);
   const [isEligiblizing, setIsEligiblizing] = useState(false);
+  const [isCheckingSubscribers, setIsCheckingSubscribers] = useState(false);
 
   const {
     isAvailable: extensionReady,
@@ -195,7 +209,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         setBestsellers(data.bestsellers);
         setTotal(data.total);
         setTotalPages(data.totalPages);
-        setPage(data.page);
+        setPage((current) => (current === data.page ? current : data.page));
         return data.bestsellers;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load";
@@ -258,6 +272,69 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     });
     return data.statuses;
   }, []);
+
+  const toWriteStackAuthorRef = useCallback(
+    (b: Bestseller) => ({
+      authorId: b.authorId!,
+      handle: b.authorHandle,
+      name: b.authorName ?? b.publicationName,
+    }),
+    [],
+  );
+
+  const checkSubscribers = useCallback(
+    async (
+      list: Bestseller[],
+      options: {
+        statusMap: DmStatusMap;
+        force?: boolean;
+      },
+    ) => {
+      const statusMap = options.statusMap;
+      const authors = list
+        .filter((b) => b.authorId != null && b.authorHandle?.trim())
+        .filter((b) => {
+          if (options?.force) return true;
+          return !hasWriteStackSubscriberCheck(
+            statusMap.get(b.authorId!),
+          );
+        })
+        .map(toWriteStackAuthorRef);
+
+      if (authors.length === 0) return [];
+
+      setIsCheckingSubscribers(true);
+      try {
+        const res = await fetch("/api/dev/are-subscribers", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ authors }),
+        });
+        const data = (await res.json()) as {
+          statuses: BestsellerDM[];
+          subscribers: string[];
+          error?: string;
+        };
+        if (!res.ok || data.error) {
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+        setStatusByAuthor((prev) => {
+          const next = new Map(prev);
+          for (const row of data.statuses) next.set(row.authorId, row);
+          return next;
+        });
+        return data.statuses;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Subscriber check failed";
+        toast.error(`WriteStack subscriber check failed: ${message}`);
+        throw err;
+      } finally {
+        setIsCheckingSubscribers(false);
+      }
+    },
+    [toWriteStackAuthorRef],
+  );
 
   const fetchDmStatuses = useCallback(async (authorIds: number[]) => {
     if (authorIds.length === 0) {
@@ -345,18 +422,25 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
       const authorIds = list
         .map((b) => b.authorId)
         .filter((id): id is number => id != null);
+      let statusMap: DmStatusMap;
       try {
-        await fetchDmStatuses(authorIds);
+        statusMap = await fetchDmStatuses(authorIds);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Status fetch failed";
         toast.error(`DM status load failed: ${message}`);
+        return;
+      }
+      try {
+        await checkSubscribers(list, { statusMap });
+      } catch {
+        // checkSubscribers already toasts
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedCategoryKey, page, fetchBestsellers, fetchDmStatuses]);
+  }, [selectedCategoryKey, page, fetchBestsellers, fetchDmStatuses, checkSubscribers]);
 
   const handleVerifySingle = useCallback(
     async (bestseller: Bestseller) => {
@@ -519,11 +603,73 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     [sendTarget, callExtension],
   );
 
+  const hiddenSubscriberCount = useMemo(() => {
+    const eligible = filterEligibleBestsellers(bestsellers, statusByAuthor);
+    return eligible.filter(
+      (b) =>
+        b.authorId != null &&
+        isPersistedWriteStackSubscriber(statusByAuthor.get(b.authorId)),
+    ).length;
+  }, [bestsellers, statusByAuthor]);
+
   const visibleBestsellers = useMemo(() => {
-    const filtered = filterEligibleBestsellers(bestsellers, statusByAuthor);
-    const sorted = sortBestsellersByDmStatus(filtered, statusByAuthor, sortOrder);
+    const eligible = filterEligibleBestsellers(bestsellers, statusByAuthor);
+    const nonSubscribers = filterNonSubscriberBestsellers(
+      eligible,
+      statusByAuthor,
+    );
+    const sorted = sortBestsellersByDmStatus(
+      nonSubscribers,
+      statusByAuthor,
+      sortOrder,
+    );
     return rerankBestsellers(sorted, page * BESTSELLER_PAGE_SIZE);
   }, [bestsellers, statusByAuthor, page, sortOrder]);
+
+  const getWriteStackStatus = useCallback(
+    (b: Bestseller): WriteStackSubscriberStatus => {
+      if (!normalizeBestsellerHandle(b.authorHandle) || b.authorId == null) {
+        return "no-handle";
+      }
+      const status = statusByAuthor.get(b.authorId);
+      if (isCheckingSubscribers && !hasWriteStackSubscriberCheck(status)) {
+        return "checking";
+      }
+      if (!hasWriteStackSubscriberCheck(status)) return "unchecked";
+      if (isPersistedWriteStackSubscriber(status)) return "subscriber";
+      return "not-subscriber";
+    },
+    [isCheckingSubscribers, statusByAuthor],
+  );
+
+  const handleCheckSubscribers = useCallback(async () => {
+    if (bestsellers.length === 0) {
+      toast.info("No bestsellers on this page to check.");
+      return;
+    }
+    try {
+      const statuses = await checkSubscribers(bestsellers, {
+        force: true,
+        statusMap: statusByAuthor,
+      });
+      const statusMap = new Map(statusByAuthor);
+      for (const row of statuses) statusMap.set(row.authorId, row);
+      const hidden = filterEligibleBestsellers(bestsellers, statusMap).filter(
+        (b) =>
+          b.authorId != null &&
+          isPersistedWriteStackSubscriber(statusMap.get(b.authorId)),
+      ).length;
+      if (hidden > 0) {
+        toast.success(
+          `WriteStack check done — ${hidden} subscriber${hidden === 1 ? "" : "s"} hidden from list`,
+        );
+      } else {
+        toast.success("WriteStack check done — no subscribers on this page");
+      }
+    } catch {
+      // checkSubscribers already toasts
+    }
+  }, [bestsellers, statusByAuthor, checkSubscribers]);
 
   const handleVerifyAll = useCallback(async () => {
     if (!extensionReady) {
@@ -784,6 +930,19 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
           </Button>
           <Button
             variant="outline"
+            onClick={() => void handleCheckSubscribers()}
+            disabled={isCheckingSubscribers || isLoadingList}
+            aria-label="Check which bestsellers are WriteStack subscribers"
+          >
+            {isCheckingSubscribers ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Users className="h-4 w-4 mr-2" />
+            )}
+            {isCheckingSubscribers ? "Checking…" : "Check WriteStack"}
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleEligiblizeAll}
             disabled={
               isEligiblizing ||
@@ -870,8 +1029,11 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
                   <span className="font-medium text-foreground">
                     {selectedCategory.name}
                   </span>
-                  {total > 0 ? ` · ${total} total` : null} — DM status fresh for{" "}
-                  {DM_FRESHNESS_DAYS} days.
+                  {total > 0 ? ` · ${total} total` : null}
+                  {hiddenSubscriberCount > 0
+                    ? ` · ${hiddenSubscriberCount} WriteStack subscriber${hiddenSubscriberCount === 1 ? "" : "s"} hidden`
+                    : null}{" "}
+                  — DM status fresh for {DM_FRESHNESS_DAYS} days.
                 </>
               )}
             </div>
@@ -898,6 +1060,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         <BestsellerList
           isLoading={isLoadingList}
           bestsellers={visibleBestsellers}
+          getWriteStackStatus={getWriteStackStatus}
           actionStateByAuthorId={actionStateByAuthorId}
           verifyStateByAuthorId={verifyStateByAuthorId}
           verifyEligibleStateByAuthorId={verifyEligibleStateByAuthorId}

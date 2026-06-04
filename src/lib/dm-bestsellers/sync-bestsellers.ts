@@ -4,6 +4,7 @@ import {
 } from "@/lib/dm-bestsellers/constants";
 import {
   filterEligibleBestsellers,
+  filterNonSubscriberBestsellers,
   rerankBestsellers,
   sortBestsellersByDmStatus,
   DEFAULT_BESTSELLER_SORT_ORDER,
@@ -221,8 +222,12 @@ export const getDmBestsellersPage = async (params: {
     mapDirectoryPublication(row, index + 1),
   );
   const filtered = filterEligibleBestsellers(allBestsellers, statusByAuthor);
-  const sorted = sortBestsellersByDmStatus(
+  const nonSubscribers = filterNonSubscriberBestsellers(
     filtered,
+    statusByAuthor,
+  );
+  const sorted = sortBestsellersByDmStatus(
+    nonSubscribers,
     statusByAuthor,
     DEFAULT_BESTSELLER_SORT_ORDER,
   );

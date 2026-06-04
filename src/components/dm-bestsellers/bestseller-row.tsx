@@ -3,6 +3,13 @@
 import type { KeyboardEvent } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { BadgeCheck, X } from "lucide-react";
 import type { Bestseller } from "@/lib/substack/discover";
 import { buildCreatorUrl, isBestsellerTier } from "@/lib/substack/discover";
@@ -15,8 +22,16 @@ import {
   type VerifyEligibleActionState,
 } from "./dm-action-button";
 
+export type WriteStackSubscriberStatus =
+  | "checking"
+  | "unchecked"
+  | "subscriber"
+  | "not-subscriber"
+  | "no-handle";
+
 type Props = {
   bestseller: Bestseller;
+  writeStackStatus: WriteStackSubscriberStatus;
   actionState: DmActionState;
   verifyState: VerifyActionState;
   verifyEligibleState: VerifyEligibleActionState;
@@ -34,8 +49,57 @@ const initialsFor = (name: string) =>
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("") || "?";
 
+const writeStackTooltipFor = (status: WriteStackSubscriberStatus): string => {
+  switch (status) {
+    case "checking":
+      return "Checking WriteStack — looking up whether they have (or had) a WriteStack note.";
+    case "unchecked":
+      return "Not checked yet. Use “Check WriteStack” on the page to look them up.";
+    case "no-handle":
+      return "No Substack handle on file — can't check WriteStack status.";
+    case "subscriber":
+      return "WriteStack subscriber — they have a note on file. Hidden from the outreach list.";
+    case "not-subscriber":
+      return "Not a WriteStack subscriber — safe to include in DM outreach.";
+  }
+};
+
+const WriteStackBadge = ({
+  status,
+}: {
+  status: WriteStackSubscriberStatus;
+}) => {
+  if (status === "checking") {
+    return (
+      <Badge variant="outline" className="text-xs tabular-nums">
+        …
+      </Badge>
+    );
+  }
+  if (status === "no-handle" || status === "unchecked") {
+    return (
+      <Badge variant="outline" className="text-xs text-muted-foreground">
+        {status === "unchecked" ? "?" : "—"}
+      </Badge>
+    );
+  }
+  if (status === "subscriber") {
+    return (
+      <Badge variant="secondary" className="text-xs">
+        Yes
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-xs">
+      No
+    </Badge>
+  );
+};
+
 export const BestsellerRow = ({
   bestseller,
+  writeStackStatus,
   actionState,
   verifyState,
   verifyEligibleState,
@@ -77,20 +141,31 @@ export const BestsellerRow = ({
   };
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-secondary/40 transition-colors">
       {hasAuthor ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={handleDismiss}
-          onKeyDown={handleDismissKeyDown}
-          aria-label={`Remove ${displayName} from list`}
-          tabIndex={0}
-          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleDismiss}
+                onKeyDown={handleDismissKeyDown}
+                aria-label={`Remove ${displayName} from list`}
+                tabIndex={0}
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            Remove from this list — hides them without deleting their Substack
+            data.
+          </TooltipContent>
+        </Tooltip>
       ) : (
         <div className="h-8 w-8 shrink-0" aria-hidden="true" />
       )}
@@ -125,8 +200,21 @@ export const BestsellerRow = ({
         ) : null}
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0">
-        <VerifyActionButton
+        <div className="w-[4.5rem] shrink-0 flex justify-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <WriteStackBadge status={writeStackStatus} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              {writeStackTooltipFor(writeStackStatus)}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <VerifyActionButton
           state={hasAuthor ? verifyState : "disabled"}
           onClick={hasAuthor ? handleVerify : undefined}
           ariaLabel={`Verify DM status for ${displayName}`}
@@ -140,16 +228,17 @@ export const BestsellerRow = ({
               : `Verify note eligibility for ${displayName}`
           }
         />
-        <DmActionButton
-          state={hasAuthor ? actionState : "disabled"}
-          onClick={hasAuthor ? handleSend : undefined}
-          ariaLabel={
-            actionState === "sent"
-              ? `Already DM'd ${displayName}`
-              : `Send DM to ${displayName}`
-          }
-        />
-      </div>
+          <DmActionButton
+            state={hasAuthor ? actionState : "disabled"}
+            onClick={hasAuthor ? handleSend : undefined}
+            ariaLabel={
+              actionState === "sent"
+                ? `Already DM'd ${displayName}`
+                : `Send DM to ${displayName}`
+            }
+          />
+        </div>
     </div>
+    </TooltipProvider>
   );
 };
