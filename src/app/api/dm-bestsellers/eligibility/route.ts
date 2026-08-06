@@ -24,29 +24,15 @@ export const POST = async (req: NextRequest) => {
   }
 
   try {
-    const results = await fetch(
-      "https://track.writestack.io/api/dm-bestsellers/eligibility",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ authorIds: body.authorIds }),
-      },
-    );
-    const text = await results.text();
-    if (!results.ok) {
-      throw new Error(`HTTP ${results.status}`);
-    }
-    return NextResponse.json(JSON.parse(text));
-    // const data = await results.json();
-    // const results = await checkAndSaveEligibilityBatch(body.authorIds);
-    // return NextResponse.json({
-    //   results: results.map(({ authorId, noteCount, isSendingNotes }) => ({
-    //     authorId,
-    //     noteCount,
-    //     isSendingNotes,
-    //   })),
-    //   statuses: results.map((r) => r.status),
-    // });
+    const results = await checkAndSaveEligibilityBatch(body.authorIds);
+    return NextResponse.json({
+      results: results.map(({ authorId, noteCount, isSendingNotes }) => ({
+        authorId,
+        noteCount,
+        isSendingNotes,
+      })),
+      statuses: results.map((r) => r.status),
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Eligibility check failed";
