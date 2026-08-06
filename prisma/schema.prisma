@@ -145,3 +145,42 @@ model BestsellerDM {
   @@index([isDeleted])
   @@index([isWriteStackSubscriber])
 }
+
+/// Substack discover category (slug key or synthetic e.g. "leaderboard").
+model BestsellerCategory {
+  categoryKey            String    @id
+  name                   String
+  slug                   String?
+  emoji                  String?
+  substackCategoryId     Int?      @unique
+  leaderboardDescription String?
+  /// When the publication list was last synced from Substack.
+  fetchedAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  entries BestsellerEntry[]
+}
+
+/// Cached bestseller row for a category leaderboard (synced from Substack).
+model BestsellerEntry {
+  id              String             @id @default(uuid())
+  categoryKey     String
+  category        BestsellerCategory @relation(fields: [categoryKey], references: [categoryKey], onDelete: Cascade)
+  rank            Int
+  publicationId   Int
+  publicationName String
+  publicationUrl  String
+  subdomain       String
+  logoUrl         String?
+  bestsellerTier  Int?
+  authorId        Int?
+  authorName      String?
+  authorHandle    String?
+  authorPhotoUrl  String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([categoryKey, publicationId])
+  @@index([categoryKey, rank])
+}

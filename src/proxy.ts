@@ -3,7 +3,12 @@ import { getIronSession } from "iron-session";
 import type { SessionData } from "@/lib/auth/session";
 import { sessionOptions } from "@/lib/auth/config";
 
-const PUBLIC_PATHS = ["/login", "/api/sync/run", "/api/resend/webhook"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/sync/run",
+  "/api/resend/webhook",
+  "/api/test",
+];
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

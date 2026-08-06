@@ -31,9 +31,7 @@ export class ExtensionUnavailableError extends Error {
   }
 }
 
-export type ExtensionPingResult =
-  | { ok: true }
-  | { ok: false; reason: string };
+export type ExtensionPingResult = { ok: true } | { ok: false; reason: string };
 
 const getChromeRuntime = () => {
   if (typeof window === "undefined") return null;
@@ -61,9 +59,7 @@ const sendMessage = <TResponse>(
       });
     } catch (err) {
       reject(
-        err instanceof Error
-          ? err
-          : new ExtensionUnavailableError(String(err)),
+        err instanceof Error ? err : new ExtensionUnavailableError(String(err)),
       );
     }
   });
@@ -83,7 +79,8 @@ export const pingExtension = async (): Promise<ExtensionPingResult> => {
   if (!EXTENSION_ID) {
     return {
       ok: false,
-      reason: "NEXT_PUBLIC_EXTENSION_ID is not set — restart the dev server after updating .env",
+      reason:
+        "NEXT_PUBLIC_EXTENSION_ID is not set — restart the dev server after updating .env",
     };
   }
   try {

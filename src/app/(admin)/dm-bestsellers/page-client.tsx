@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CheckCheck,
@@ -144,16 +145,50 @@ const isEligibilityRateLimitError = (err: unknown): boolean => {
   return /\b429\b/.test(err.message);
 };
 
-export const DmBestsellersPageClient = ({ categories }: Props) => {
-  const defaultCategoryKey =
-    categories.find((c) => c.slug === DEFAULT_CATEGORY_SLUG)?.categoryKey ??
-    categories[0]?.categoryKey ??
-    null;
+const resolveCategoryKeyFromTopic = (
+  categories: DiscoverCategory[],
+  topic: string | null,
+  fallbackKey: string | null,
+): string | null => {
+  if (!topic?.trim()) return fallbackKey;
+  const normalized = topic.trim();
+  const bySlug = categories.find((c) => c.slug === normalized);
+  if (bySlug) return bySlug.categoryKey;
+  const byKey = categories.find((c) => c.categoryKey === normalized);
+  if (byKey) return byKey.categoryKey;
+  return fallbackKey;
+};
 
-  const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(
-    defaultCategoryKey,
+const getTopicSlugForCategory = (
+  categories: DiscoverCategory[],
+  categoryKey: string,
+): string => {
+  const category = categories.find((c) => c.categoryKey === categoryKey);
+  return category?.slug ?? categoryKey;
+};
+
+export const DmBestsellersPageClient = ({ categories }: Props) => {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const defaultCategoryKey = useMemo(
+    () =>
+      categories.find((c) => c.slug === DEFAULT_CATEGORY_SLUG)?.categoryKey ??
+      categories[0]?.categoryKey ??
+      null,
+    [categories],
+  );
+
+  const topicFromUrl = searchParams.get("topic");
+  const selectedCategoryKey = useMemo(
+    () =>
+      resolveCategoryKeyFromTopic(categories, topicFromUrl, defaultCategoryKey),
+    [categories, topicFromUrl, defaultCategoryKey],
   );
   const [page, setPage] = useState(0);
+  const prevTopicRef = useRef(topicFromUrl);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [isLoadingList, setIsLoadingList] = useState(false);
@@ -176,6 +211,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isEligiblizing, setIsEligiblizing] = useState(false);
   const [isCheckingSubscribers, setIsCheckingSubscribers] = useState(false);
+  const [isRefreshingList, setIsRefreshingList] = useState(false);
 
   const {
     isAvailable: extensionReady,
@@ -295,9 +331,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         .filter((b) => b.authorId != null && b.authorHandle?.trim())
         .filter((b) => {
           if (options?.force) return true;
-          return !hasWriteStackSubscriberCheck(
-            statusMap.get(b.authorId!),
-          );
+          return !hasWriteStackSubscriberCheck(statusMap.get(b.authorId!));
         })
         .map(toWriteStackAuthorRef);
 
@@ -404,10 +438,31 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     }
   }, []);
 
-  const handleCategorySelect = useCallback((categoryKey: string) => {
-    setSelectedCategoryKey(categoryKey);
+  const updateTopicParam = useCallback(
+    (categoryKey: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("topic", getTopicSlugForCategory(categories, categoryKey));
+      startTransition(() => {
+        router.push(`${pathname}?${params.toString()}`);
+      });
+    },
+    [categories, searchParams, pathname, router],
+  );
+
+  const handleCategorySelect = useCallback(
+    (categoryKey: string) => {
+      if (categoryKey === selectedCategoryKey) return;
+      setPage(0);
+      updateTopicParam(categoryKey);
+    },
+    [selectedCategoryKey, updateTopicParam],
+  );
+
+  useEffect(() => {
+    if (prevTopicRef.current === topicFromUrl) return;
+    prevTopicRef.current = topicFromUrl;
     setPage(0);
-  }, []);
+  }, [topicFromUrl]);
 
   const handlePageChange = useCallback((nextPage: number) => {
     setPage(nextPage);
@@ -440,7 +495,13 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [selectedCategoryKey, page, fetchBestsellers, fetchDmStatuses, checkSubscribers]);
+  }, [
+    selectedCategoryKey,
+    page,
+    fetchBestsellers,
+    fetchDmStatuses,
+    checkSubscribers,
+  ]);
 
   const handleVerifySingle = useCallback(
     async (bestseller: Bestseller) => {
@@ -541,7 +602,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
       setSendingAuthorIds((prev) => new Set(prev).add(authorId));
       try {
         const result = await callExtension("sendDM", [authorId, body]);
-        if (!result.clientId || !result.threadId) {
+        if (!result.threadId) {
           if (result.didExceedRateLimit) {
             toast.error("Rate limit exceeded");
             return;
@@ -556,7 +617,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
             authorId,
             handle: sendTarget.authorHandle,
             name: sendTarget.authorName ?? sendTarget.publicationName,
-            clientId: result.clientId,
+            clientId: result.clientId || "-1",
             threadId: result.threadId,
           }),
         });
@@ -641,6 +702,62 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     },
     [isCheckingSubscribers, statusByAuthor],
   );
+
+  const handleRefreshList = useCallback(async () => {
+    if (isRefreshingList) return;
+    setIsRefreshingList(true);
+    try {
+      const res = await fetch("/api/dm-bestsellers/refresh", { method: "POST" });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        syncedCount?: number;
+        failedCount?: number;
+        totalEntries?: number;
+      };
+      if (!res.ok || data.error || !data.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+
+      const failed = data.failedCount ?? 0;
+      const synced = data.syncedCount ?? 0;
+      const totalEntries = data.totalEntries ?? 0;
+      if (failed > 0) {
+        toast.warning(
+          `Synced ${synced} categories (${totalEntries} entries), ${failed} failed`,
+        );
+      } else {
+        toast.success(
+          `Refreshed ${synced} categories — ${totalEntries} bestsellers cached`,
+        );
+      }
+
+      if (selectedCategoryKey != null) {
+        setPage(0);
+        const list = await fetchBestsellers(selectedCategoryKey, 0);
+        const authorIds = list
+          .map((b) => b.authorId)
+          .filter((id): id is number => id != null);
+        try {
+          const statusMap = await fetchDmStatuses(authorIds);
+          await checkSubscribers(list, { statusMap });
+        } catch {
+          // status / subscriber helpers already toast
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Refresh failed";
+      toast.error(`Refresh list failed: ${message}`);
+    } finally {
+      setIsRefreshingList(false);
+    }
+  }, [
+    isRefreshingList,
+    selectedCategoryKey,
+    fetchBestsellers,
+    fetchDmStatuses,
+    checkSubscribers,
+  ]);
 
   const handleCheckSubscribers = useCallback(async () => {
     if (bestsellers.length === 0) {
@@ -759,12 +876,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
     } else {
       toast.success(`Verified ${success} authors`);
     }
-  }, [
-    visibleBestsellers,
-    extensionReady,
-    callExtension,
-    persistDmStatuses,
-  ]);
+  }, [visibleBestsellers, extensionReady, callExtension, persistDmStatuses]);
 
   const handleEligiblizeAll = useCallback(async () => {
     const toCheck = visibleBestsellers.filter((b) =>
@@ -788,8 +900,8 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         .map((item) => item.authorId)
         .filter((id): id is number => id != null);
 
-      setEligibilityCheckingAuthorIds((prev) =>
-        new Set([...prev, ...batchAuthorIds]),
+      setEligibilityCheckingAuthorIds(
+        (prev) => new Set([...prev, ...batchAuthorIds]),
       );
 
       const runBatch = async () => checkEligibility(batchAuthorIds);
@@ -890,9 +1002,8 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
 
   const pendingEligibilityCount = useMemo(
     () =>
-      visibleBestsellers.filter((b) =>
-        needsEligibilityCheck(b, statusByAuthor),
-      ).length,
+      visibleBestsellers.filter((b) => needsEligibilityCheck(b, statusByAuthor))
+        .length,
     [visibleBestsellers, statusByAuthor],
   );
 
@@ -902,18 +1013,31 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
         <div>
           <h1 className="text-2xl font-bold">DM Bestsellers</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Substack bestsellers across categories, loaded from the directory
-            database.
+            Substack bestsellers across categories. Use Refresh list to sync
+            live leaderboards into the local cache (falls back to the directory
+            DB until then).
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => void handleRefreshList()}
+            disabled={isRefreshingList || isLoadingList}
+            aria-label="Refresh bestsellers from Substack for every category"
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isRefreshingList ? "animate-spin" : ""}`}
+            />
+            {isRefreshingList ? "Refreshing…" : "Refresh list"}
+          </Button>
           <Button
             onClick={handleVerifyAll}
             disabled={
               !extensionReady ||
               isVerifying ||
               pendingCount === 0 ||
-              isLoadingList
+              isLoadingList ||
+              isRefreshingList
             }
             aria-label="Verify DM status for all bestsellers on this page via extension"
           >
@@ -931,7 +1055,9 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
           <Button
             variant="outline"
             onClick={() => void handleCheckSubscribers()}
-            disabled={isCheckingSubscribers || isLoadingList}
+            disabled={
+              isCheckingSubscribers || isLoadingList || isRefreshingList
+            }
             aria-label="Check which bestsellers are WriteStack subscribers"
           >
             {isCheckingSubscribers ? (
@@ -947,7 +1073,8 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
             disabled={
               isEligiblizing ||
               // pendingEligibilityCount === 0 ||
-              isLoadingList
+              isLoadingList ||
+              isRefreshingList
             }
             aria-label="Check note eligibility for all unchecked bestsellers on this page"
           >

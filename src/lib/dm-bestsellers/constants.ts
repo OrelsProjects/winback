@@ -36,6 +36,9 @@ export const DM_ELIGIBILITY_MIN_NOTES_PER_DAY = 1;
 /** Substack returns 25 publications per API page (limit param is ignored). */
 export const SUBSTACK_API_PAGE_SIZE = 25;
 
+/** Pause between category syncs when refreshing all leaderboards from Substack. */
+export const BESTSELLER_CATEGORY_SYNC_DELAY_MS = 500;
+
 /**
  * Returns true when we already verified DM-status recently enough to skip
  * the extension lookup. Anything older (or never checked) needs a re-check.
