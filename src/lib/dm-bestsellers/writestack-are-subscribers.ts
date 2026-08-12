@@ -3,7 +3,7 @@ import { normalizeBestsellerHandle } from "@/lib/dm-bestsellers/are-subscribers"
 
 const ARE_SUBSCRIBERS_BATCH_SIZE = 500;
 
-const getWriteStackAreSubscribersUrl = (): string => {
+export const getWriteStackAreSubscribersUrl = (): string => {
   if (process.env.NODE_ENV === "production") {
     return "https://writestack.io/api/dev/are-subscribers";
   }

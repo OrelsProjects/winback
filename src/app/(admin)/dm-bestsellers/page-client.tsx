@@ -62,6 +62,7 @@ import {
   DEFAULT_BESTSELLER_SORT_ORDER,
 } from "@/lib/dm-bestsellers/eligible-for-display";
 import type { WriteStackSubscriberStatus } from "@/components/dm-bestsellers/bestseller-row";
+import { getWriteStackAreSubscribersUrl } from "@/lib/dm-bestsellers/writestack-are-subscribers";
 
 type Props = {
   categories: DiscoverCategory[];
@@ -339,7 +340,7 @@ export const DmBestsellersPageClient = ({ categories }: Props) => {
 
       setIsCheckingSubscribers(true);
       try {
-        const res = await fetch("/api/dev/are-subscribers", {
+        const res = await fetch(getWriteStackAreSubscribersUrl(), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ authors }),
